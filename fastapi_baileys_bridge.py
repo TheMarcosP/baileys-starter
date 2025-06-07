@@ -12,6 +12,8 @@ class SendMessageRequest(BaseModel):
 async def receive_message(request: Request):
     data = await request.json()
     print("Received WhatsApp message:", data)
+
+    # 
     return {"status": "received"}
 
 @app.post("/send-whatsapp")

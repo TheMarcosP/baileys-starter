@@ -1,5 +1,7 @@
-import { BaileysEventMap, WASocket, WAMessage } from 'baileys'
+import { BaileysEventMap, WASocket, WAMessage, downloadMediaMessage, getContentType } from 'baileys'
 import axios from 'axios'
+import fs from 'fs'
+import path from 'path'
 
 import { config } from '../config/index.js'
 import { generateResponse } from '../ai/openai.js'
@@ -32,6 +34,89 @@ async function handleMessage(sock: WASocket, message: WAMessage) {
     try {
         const remoteJid = message.key.remoteJid
         if (!remoteJid) return
+
+        // Detect message type
+        const messageType = message.message ? getContentType(message.message) : undefined
+
+        if (messageType === 'imageMessage') {
+            // Ensure receipts directory exists
+            const receiptsDir = path.join(process.cwd(), 'receipts')
+            if (!fs.existsSync(receiptsDir)) {
+                fs.mkdirSync(receiptsDir)
+            }
+            // Download image
+            const stream = await downloadMediaMessage(
+                message,
+                'stream',
+                {},
+                { logger: logger.getPinoInstance(), reuploadRequest: sock.updateMediaMessage }
+            )
+            const fileName = `receipt_${message.key.id}.jpg`
+            const filePath = path.join(receiptsDir, fileName)
+            const writeStream = fs.createWriteStream(filePath)
+            await new Promise((resolve, reject) => {
+                stream.pipe(writeStream)
+                stream.on('end', resolve)
+                stream.on('error', reject)
+            })
+            // Notify FastAPI
+            try {
+                await axios.post('http://localhost:8000/whatsapp/message', {
+                    remoteJid,
+                    messageId: message.key.id,
+                    imagePath: filePath,
+                    fullMessage: message
+                })
+            } catch (err) {
+                logger.error('Failed to notify FastAPI about image', err)
+            }
+            logger.info('Image message received and saved', {
+                from: remoteJid,
+                messageId: message.key.id,
+                filePath
+            })
+            return
+        }
+
+        // Handle PDF document receipts
+        if (messageType === 'documentMessage' && message.message?.documentMessage?.mimetype === 'application/pdf') {
+            const receiptsDir = path.join(process.cwd(), 'receipts')
+            if (!fs.existsSync(receiptsDir)) {
+                fs.mkdirSync(receiptsDir)
+            }
+            // Download PDF
+            const stream = await downloadMediaMessage(
+                message,
+                'stream',
+                {},
+                { logger: logger.getPinoInstance(), reuploadRequest: sock.updateMediaMessage }
+            )
+            const fileName = `receipt_${message.key.id}.pdf`
+            const filePath = path.join(receiptsDir, fileName)
+            const writeStream = fs.createWriteStream(filePath)
+            await new Promise((resolve, reject) => {
+                stream.pipe(writeStream)
+                stream.on('end', resolve)
+                stream.on('error', reject)
+            })
+            // Notify FastAPI
+            try {
+                await axios.post('http://localhost:8000/whatsapp/message', {
+                    remoteJid,
+                    messageId: message.key.id,
+                    pdfPath: filePath,
+                    fullMessage: message
+                })
+            } catch (err) {
+                logger.error('Failed to notify FastAPI about PDF', err)
+            }
+            logger.info('PDF receipt received and saved', {
+                from: remoteJid,
+                messageId: message.key.id,
+                filePath
+            })
+            return
+        }
 
         // Get the text content from the message
         const textContent =
