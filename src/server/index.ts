@@ -18,6 +18,7 @@ export function startServer() {
     app.set('views', path.join(process.cwd(), 'src', 'views'))
 
     app.use(express.urlencoded({ extended: true }))
+    app.use(express.json())
     app.use(
         session({
             secret: 'mysecret',

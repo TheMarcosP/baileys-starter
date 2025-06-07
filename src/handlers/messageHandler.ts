@@ -1,4 +1,5 @@
 import { BaileysEventMap, WASocket, WAMessage } from 'baileys'
+import axios from 'axios'
 
 import { config } from '../config/index.js'
 import { generateResponse } from '../ai/openai.js'
@@ -37,6 +38,18 @@ async function handleMessage(sock: WASocket, message: WAMessage) {
             message.message?.conversation || message.message?.extendedTextMessage?.text || ''
 
         if (!textContent) return
+
+        // Send message to FastAPI
+        try {
+            await axios.post('http://localhost:8000/whatsapp/message', {
+                remoteJid,
+                text: textContent,
+                messageId: message.key.id,
+                fullMessage: message
+            })
+        } catch (err) {
+            logger.error('Failed to forward message to FastAPI', err)
+        }
 
         logger.info('Message received', {
             from: remoteJid,
